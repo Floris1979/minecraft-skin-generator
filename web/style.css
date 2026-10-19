@@ -1,0 +1,105 @@
+:root {
+  color-scheme: light dark;
+  --bg: #16181d;
+  --panel: #1f232b;
+  --text: #e8eaed;
+  --muted: #9aa0a6;
+  --accent: #5b8def;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+  font-family: system-ui, sans-serif;
+  padding: 2rem 1rem;
+}
+
+main {
+  width: 100%;
+  max-width: 720px;
+}
+
+h1 {
+  margin-bottom: 0.25rem;
+}
+
+.subtitle {
+  color: var(--muted);
+  margin-top: 0;
+}
+
+#prompt-form {
+  display: flex;
+  gap: 0.5rem;
+  margin: 1.5rem 0;
+}
+
+#prompt-input {
+  flex: 1;
+  padding: 0.75rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #333;
+  background: var(--panel);
+  color: var(--text);
+  font-size: 1rem;
+}
+
+button {
+  padding: 0.75rem 1.25rem;
+  border-radius: 8px;
+  border: none;
+  background: var(--accent);
+  color: white;
+  font-size: 1rem;
+  cursor: pointer;
+}
+
+button:hover {
+  filter: brightness(1.1);
+}
+
+.output {
+  display: flex;
+  gap: 2rem;
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.preview-pane,
+.texture-pane {
+  background: var(--panel);
+  border-radius: 12px;
+  padding: 1rem;
+  text-align: center;
+}
+
+#preview-canvas {
+  border-radius: 8px;
+}
+
+#skin-canvas {
+  width: 192px;
+  height: 192px;
+  image-rendering: pixelated;
+  border: 1px solid #333;
+  border-radius: 4px;
+}
+
+.hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+#download-link {
+  display: inline-block;
+  margin-top: 0.5rem;
+  color: var(--accent);
+}

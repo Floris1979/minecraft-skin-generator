@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Minecraft Skin Generator</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <main>
+    <h1>Minecraft Skin Generator</h1>
+    <p class="subtitle">Describe a character and get a Minecraft skin.</p>
+
+    <form id="prompt-form">
+      <input
+        id="prompt-input"
+        type="text"
+        placeholder="e.g. a knight in blue armor with a red cape"
+        autocomplete="off"
+      />
+      <button type="submit">Generate</button>
+    </form>
+
+    <div class="output" hidden id="output">
+      <div class="preview-pane">
+        <canvas id="preview-canvas" width="400" height="500"></canvas>
+      </div>
+      <div class="texture-pane">
+        <canvas id="skin-canvas" width="64" height="64"></canvas>
+        <p class="hint">Raw 64x64 skin texture</p>
+        <a id="download-link" download="skin.png">Download PNG</a>
+      </div>
+    </div>
+
+    <p id="fallback-note" class="hint" hidden>
+      Didn't recognize every word in that prompt — filled in the rest with defaults.
+    </p>
+  </main>
+
+  <script src="https://unpkg.com/skinview3d@3/bundles/skinview3d.bundle.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
