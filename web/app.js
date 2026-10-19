@@ -120,25 +120,139 @@ function parsePrompt(text) {
   return { theme, palette, recognizedAnything };
 }
 
+// Lighten (percent > 0) or darken (percent < 0) a "#rrggbb" color, percent in [-1, 1].
+function shade(hex, percent) {
+  const num = parseInt(hex.slice(1), 16);
+  let r = (num >> 16) & 0xff;
+  let g = (num >> 8) & 0xff;
+  let b = num & 0xff;
+
+  if (percent >= 0) {
+    r += (255 - r) * percent;
+    g += (255 - g) * percent;
+    b += (255 - b) * percent;
+  } else {
+    r *= 1 + percent;
+    g *= 1 + percent;
+    b *= 1 + percent;
+  }
+
+  r = Math.max(0, Math.min(255, Math.round(r)));
+  g = Math.max(0, Math.min(255, Math.round(g)));
+  b = Math.max(0, Math.min(255, Math.round(b)));
+  return `#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).slice(1)}`;
+}
+
 function fillRegion(ctx, [x, y, w, h], color) {
   ctx.fillStyle = color;
   ctx.fillRect(x, y, w, h);
 }
 
+// Flat fill plus a top highlight / bottom shadow strip and a thin outline, so
+// each region reads as a beveled block instead of a flat rectangle.
 function paintPart(ctx, part, color) {
+  const light = shade(color, 0.22);
+  const dark = shade(color, -0.28);
+  const outline = shade(color, -0.45);
+
   for (const box of Object.values(part)) {
+    const [x, y, w, h] = box;
     fillRegion(ctx, box, color);
+
+    const hl = Math.max(1, Math.round(h * 0.2));
+    fillRegion(ctx, [x, y, w, hl], light);
+
+    const sh = Math.max(1, Math.round(h * 0.25));
+    fillRegion(ctx, [x, y + h - sh, w, sh], dark);
+
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = 1;
+    ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   }
 }
 
+function drawDots(ctx, [x, y, w, h], color, spacing) {
+  ctx.fillStyle = color;
+  for (let yy = y + 1; yy < y + h - 1; yy += spacing) {
+    for (let xx = x + 1; xx < x + w - 1; xx += spacing) {
+      ctx.fillRect(xx, yy, 1, 1);
+    }
+  }
+}
+
+function drawHorizontalLines(ctx, [x, y, w, h], color, count) {
+  ctx.fillStyle = color;
+  for (let i = 1; i <= count; i++) {
+    const ly = y + Math.round((h / (count + 1)) * i);
+    ctx.fillRect(x, ly, w, 1);
+  }
+}
+
+function drawStripe(ctx, [x, y, w, h], color, atFraction, thickness) {
+  ctx.fillStyle = color;
+  const sy = y + Math.round(h * atFraction);
+  ctx.fillRect(x, sy, w, thickness);
+}
+
+function drawPatches(ctx, box, color) {
+  const [x, y, w, h] = box;
+  ctx.fillStyle = color;
+  ctx.fillRect(x + 1, y + 2, Math.max(1, Math.floor(w / 3)), 1);
+  ctx.fillRect(x + Math.max(1, Math.floor(w / 2)), y + h - 3, Math.max(1, Math.floor(w / 3)), 1);
+}
+
+// Theme -> accent pass drawn on top of the shaded fill, using shades derived
+// from the actual painted colors so accents still read correctly when a
+// prompt's color keyword has overridden the theme's default palette.
+const PATTERNS = {
+  knight(ctx, palette) {
+    const dot = shade(palette.body, -0.5);
+    [REGIONS.body.front, REGIONS.rightArm.front, REGIONS.leftArm.front, REGIONS.rightLeg.front, REGIONS.leftLeg.front]
+      .forEach((box) => drawDots(ctx, box, dot, 2));
+  },
+  robot(ctx, palette) {
+    drawHorizontalLines(ctx, REGIONS.body.front, shade(palette.body, 0.35), 1);
+    ctx.fillStyle = "#2fa5a5";
+    ctx.fillRect(REGIONS.body.front[0] + 1, REGIONS.body.front[1] + 1, 2, 2);
+    const rivet = shade(palette.arms, -0.5);
+    drawDots(ctx, REGIONS.rightArm.front, rivet, 3);
+    drawDots(ctx, REGIONS.leftArm.front, rivet, 3);
+  },
+  zombie(ctx, palette) {
+    const patch = shade(palette.body, -0.35);
+    drawPatches(ctx, REGIONS.body.front, patch);
+    drawPatches(ctx, REGIONS.rightArm.front, shade(palette.arms, -0.35));
+  },
+  skeleton(ctx, palette) {
+    drawHorizontalLines(ctx, REGIONS.body.front, shade(palette.body, -0.3), 3);
+  },
+  pirate(ctx) {
+    drawStripe(ctx, REGIONS.body.front, "#f2e9d8", 0.4, 2);
+    ctx.fillStyle = "#c9a227";
+    ctx.fillRect(REGIONS.body.front[0] + 3, REGIONS.body.front[1] + 9, 2, 2);
+  },
+  wizard(ctx) {
+    drawStripe(ctx, REGIONS.body.front, "#c9a227", 0.85, 1);
+    drawStripe(ctx, REGIONS.rightLeg.front, "#c9a227", 0.85, 1);
+    drawStripe(ctx, REGIONS.leftLeg.front, "#c9a227", 0.85, 1);
+  },
+  witch(ctx) {
+    drawStripe(ctx, REGIONS.body.front, "#c9a227", 0.85, 1);
+  },
+  ninja(ctx) {
+    drawStripe(ctx, REGIONS.body.front, "#8a1f1f", 0.5, 1);
+  },
+};
+
 function drawFace(ctx) {
-  // Simple eyes on the head's front face, box: [8, 8, 8, 8].
+  // Eyes and a mouth on the head's front face, box: [8, 8, 8, 8].
   ctx.fillStyle = "#1b1b1b";
   ctx.fillRect(10, 11, 2, 2);
   ctx.fillRect(14, 11, 2, 2);
+  ctx.fillRect(11, 14, 4, 1);
 }
 
-function paintSkin(ctx, palette) {
+function paintSkin(ctx, theme, palette) {
   ctx.clearRect(0, 0, 64, 64);
 
   paintPart(ctx, REGIONS.head, palette.skin);
@@ -147,6 +261,9 @@ function paintSkin(ctx, palette) {
   paintPart(ctx, REGIONS.leftArm, palette.arms);
   paintPart(ctx, REGIONS.rightLeg, palette.legs);
   paintPart(ctx, REGIONS.leftLeg, palette.legs);
+
+  const pattern = PATTERNS[theme];
+  if (pattern) pattern(ctx, palette);
 
   drawFace(ctx);
 }
@@ -174,8 +291,8 @@ function ensureViewer() {
 }
 
 function generate(prompt) {
-  const { palette, recognizedAnything } = parsePrompt(prompt);
-  paintSkin(skinCtx, palette);
+  const { theme, palette, recognizedAnything } = parsePrompt(prompt);
+  paintSkin(skinCtx, theme, palette);
 
   const dataUrl = skinCanvas.toDataURL("image/png");
   downloadLink.href = dataUrl;
