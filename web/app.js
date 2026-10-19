@@ -148,8 +148,34 @@ function fillRegion(ctx, [x, y, w, h], color) {
   ctx.fillRect(x, y, w, h);
 }
 
-// Flat fill plus a top highlight / bottom shadow strip and a thin outline, so
-// each region reads as a beveled block instead of a flat rectangle.
+// Deterministic pseudo-random value in [0, 1) for a pixel coordinate, so the
+// same prompt always renders identically (no Math.random noise).
+function hashNoise(x, y) {
+  const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Per-pixel brightness dither across a region, so flat fills read as a woven,
+// grainy material instead of a solid block of color even with no theme
+// accent on top. Subtle by default (amount is the max +/- shade shift).
+function ditherRegion(ctx, [x, y, w, h], color, amount) {
+  for (let yy = y; yy < y + h; yy++) {
+    for (let xx = x; xx < x + w; xx++) {
+      const n = hashNoise(xx, yy);
+      if (n < 0.35) {
+        ctx.fillStyle = shade(color, -amount * ((0.35 - n) / 0.35));
+        ctx.fillRect(xx, yy, 1, 1);
+      } else if (n > 0.8) {
+        ctx.fillStyle = shade(color, amount * ((n - 0.8) / 0.2));
+        ctx.fillRect(xx, yy, 1, 1);
+      }
+    }
+  }
+}
+
+// Flat fill, a per-pixel noise dither, a top highlight / bottom shadow strip,
+// and a thin outline -- each region reads as a beveled, textured block
+// instead of a flat rectangle.
 function paintPart(ctx, part, color) {
   const light = shade(color, 0.22);
   const dark = shade(color, -0.28);
@@ -158,17 +184,26 @@ function paintPart(ctx, part, color) {
   for (const box of Object.values(part)) {
     const [x, y, w, h] = box;
     fillRegion(ctx, box, color);
+    ditherRegion(ctx, box, color, 0.12);
 
     const hl = Math.max(1, Math.round(h * 0.2));
     fillRegion(ctx, [x, y, w, hl], light);
+    ditherRegion(ctx, [x, y, w, hl], light, 0.1);
 
     const sh = Math.max(1, Math.round(h * 0.25));
     fillRegion(ctx, [x, y + h - sh, w, sh], dark);
+    ditherRegion(ctx, [x, y + h - sh, w, sh], dark, 0.1);
 
     ctx.strokeStyle = outline;
     ctx.lineWidth = 1;
     ctx.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
   }
+}
+
+// The four faces a slowly-rotating 3D preview actually shows, in practice
+// (top/bottom are tiny slivers almost never seen and are skipped).
+function sideFaces(part) {
+  return [part.front, part.left, part.right, part.back];
 }
 
 function drawDots(ctx, [x, y, w, h], color, spacing) {
@@ -180,11 +215,30 @@ function drawDots(ctx, [x, y, w, h], color, spacing) {
   }
 }
 
+function drawDiamonds(ctx, [x, y, w, h], color, spacing) {
+  ctx.fillStyle = color;
+  let row = 0;
+  for (let yy = y + 1; yy < y + h - 1; yy += spacing, row++) {
+    const offset = row % 2 === 0 ? 0 : Math.floor(spacing / 2);
+    for (let xx = x + 1 + offset; xx < x + w - 1; xx += spacing) {
+      ctx.fillRect(xx, yy, 1, 1);
+    }
+  }
+}
+
 function drawHorizontalLines(ctx, [x, y, w, h], color, count) {
   ctx.fillStyle = color;
   for (let i = 1; i <= count; i++) {
     const ly = y + Math.round((h / (count + 1)) * i);
     ctx.fillRect(x, ly, w, 1);
+  }
+}
+
+function drawVerticalTicks(ctx, [x, y, w, h], color, atFraction) {
+  ctx.fillStyle = color;
+  const ty = y + Math.round(h * atFraction);
+  for (let xx = x; xx < x + w; xx += 2) {
+    ctx.fillRect(xx, ty, 1, Math.min(2, y + h - ty));
   }
 }
 
@@ -201,57 +255,115 @@ function drawPatches(ctx, box, color) {
   ctx.fillRect(x + Math.max(1, Math.floor(w / 2)), y + h - 3, Math.max(1, Math.floor(w / 3)), 1);
 }
 
-// Theme -> accent pass drawn on top of the shaded fill, using shades derived
-// from the actual painted colors so accents still read correctly when a
-// prompt's color keyword has overridden the theme's default palette.
+function drawBlotches(ctx, [x, y, w, h], colorA, colorB) {
+  for (let yy = y; yy < y + h; yy++) {
+    for (let xx = x; xx < x + w; xx++) {
+      const n = hashNoise(xx * 2, yy * 2);
+      if (n > 0.82) {
+        ctx.fillStyle = n > 0.91 ? colorB : colorA;
+        ctx.fillRect(xx, yy, 1, 1);
+      }
+    }
+  }
+}
+
+// Theme -> accent pass drawn on top of the shaded, dithered fill, using
+// shades derived from the actual painted colors so accents still read
+// correctly when a prompt's color keyword has overridden the theme's default
+// palette. Applied to front/left/right/back of each part so the detail is
+// visible from every angle as the 3D preview rotates, not just face-on.
 const PATTERNS = {
   knight(ctx, palette) {
     const dot = shade(palette.body, -0.5);
-    [REGIONS.body.front, REGIONS.rightArm.front, REGIONS.leftArm.front, REGIONS.rightLeg.front, REGIONS.leftLeg.front]
+    [REGIONS.body, REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
       .forEach((box) => drawDots(ctx, box, dot, 2));
   },
   robot(ctx, palette) {
-    drawHorizontalLines(ctx, REGIONS.body.front, shade(palette.body, 0.35), 1);
+    sideFaces(REGIONS.body).forEach((box) => drawHorizontalLines(ctx, box, shade(palette.body, 0.35), 1));
     ctx.fillStyle = "#2fa5a5";
     ctx.fillRect(REGIONS.body.front[0] + 1, REGIONS.body.front[1] + 1, 2, 2);
     const rivet = shade(palette.arms, -0.5);
-    drawDots(ctx, REGIONS.rightArm.front, rivet, 3);
-    drawDots(ctx, REGIONS.leftArm.front, rivet, 3);
+    [REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawDots(ctx, box, rivet, 3));
   },
   zombie(ctx, palette) {
-    const patch = shade(palette.body, -0.35);
-    drawPatches(ctx, REGIONS.body.front, patch);
-    drawPatches(ctx, REGIONS.rightArm.front, shade(palette.arms, -0.35));
+    const bodyPatch = shade(palette.body, -0.35);
+    const limbPatch = shade(palette.arms, -0.35);
+    sideFaces(REGIONS.body).forEach((box) => drawPatches(ctx, box, bodyPatch));
+    [REGIONS.rightArm, REGIONS.leftArm].flatMap(sideFaces).forEach((box) => drawPatches(ctx, box, limbPatch));
   },
   skeleton(ctx, palette) {
-    drawHorizontalLines(ctx, REGIONS.body.front, shade(palette.body, -0.3), 3);
+    const rib = shade(palette.body, -0.3);
+    sideFaces(REGIONS.body).forEach((box) => drawHorizontalLines(ctx, box, rib, 3));
+    [REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawHorizontalLines(ctx, box, shade(palette.arms, -0.3), 2));
   },
   pirate(ctx) {
-    drawStripe(ctx, REGIONS.body.front, "#f2e9d8", 0.4, 2);
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, "#f2e9d8", 0.4, 2));
     ctx.fillStyle = "#c9a227";
     ctx.fillRect(REGIONS.body.front[0] + 3, REGIONS.body.front[1] + 9, 2, 2);
   },
   wizard(ctx) {
-    drawStripe(ctx, REGIONS.body.front, "#c9a227", 0.85, 1);
-    drawStripe(ctx, REGIONS.rightLeg.front, "#c9a227", 0.85, 1);
-    drawStripe(ctx, REGIONS.leftLeg.front, "#c9a227", 0.85, 1);
+    [REGIONS.body, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawStripe(ctx, box, "#c9a227", 0.85, 1));
+    drawDiamonds(ctx, REGIONS.body.front, "#c9a227", 4);
   },
   witch(ctx) {
-    drawStripe(ctx, REGIONS.body.front, "#c9a227", 0.85, 1);
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, "#c9a227", 0.85, 1));
+    drawDots(ctx, REGIONS.body.front, "#c9a227", 3);
   },
   ninja(ctx) {
-    drawStripe(ctx, REGIONS.body.front, "#8a1f1f", 0.5, 1);
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, "#8a1f1f", 0.5, 1));
+  },
+  alien(ctx, palette) {
+    const scale = shade(palette.body, -0.3);
+    [REGIONS.head, REGIONS.body, REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawDiamonds(ctx, box, scale, 2));
+  },
+  astronaut(ctx, palette) {
+    const seam = shade(palette.body, -0.25);
+    [REGIONS.body, REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawHorizontalLines(ctx, box, seam, 2));
+    ctx.fillStyle = "#c0392b";
+    ctx.fillRect(REGIONS.body.front[0] + 1, REGIONS.body.front[1] + 2, 2, 2);
+    const rivet = shade(palette.arms, -0.4);
+    [REGIONS.rightArm, REGIONS.leftArm].flatMap(sideFaces).forEach((box) => drawDots(ctx, box, rivet, 3));
+  },
+  vampire(ctx, palette) {
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, shade(palette.body, -0.4), 0.1, 1));
+    drawStripe(ctx, REGIONS.body.back, shade(palette.arms, 0.1), 0.15, 9);
+  },
+  cowboy(ctx, palette) {
+    [REGIONS.rightLeg, REGIONS.leftLeg].flatMap(sideFaces).forEach((box) => drawVerticalTicks(ctx, box, shade(palette.legs, -0.4), 0.9));
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, shade(palette.body, -0.35), 0.75, 1));
+  },
+  soldier(ctx, palette) {
+    const a = shade(palette.body, -0.25);
+    const b = shade(palette.body, 0.15);
+    [REGIONS.body, REGIONS.rightArm, REGIONS.leftArm, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawBlotches(ctx, box, a, b));
+  },
+  villager(ctx, palette) {
+    [REGIONS.body, REGIONS.rightLeg, REGIONS.leftLeg]
+      .flatMap(sideFaces)
+      .forEach((box) => drawStripe(ctx, box, shade(palette.body, -0.35), 0.85, 1));
   },
   // Used for any theme without a bespoke pattern above (including the generic
   // "adventurer" fallback for unrecognized prompts) so results are never just
   // flat shading: a collar line, a belt + buckle, and sleeve cuffs.
   default(ctx, palette) {
-    drawStripe(ctx, REGIONS.body.front, shade(palette.body, -0.4), 0.08, 1);
-    drawStripe(ctx, REGIONS.body.front, shade(palette.legs, -0.4), 0.62, 1);
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, shade(palette.body, -0.4), 0.08, 1));
+    sideFaces(REGIONS.body).forEach((box) => drawStripe(ctx, box, shade(palette.legs, -0.4), 0.62, 1));
     ctx.fillStyle = shade(palette.legs, -0.5);
     ctx.fillRect(REGIONS.body.front[0] + 3, REGIONS.body.front[1] + 8, 2, 2);
-    drawStripe(ctx, REGIONS.rightArm.front, shade(palette.arms, -0.4), 0.85, 1);
-    drawStripe(ctx, REGIONS.leftArm.front, shade(palette.arms, -0.4), 0.85, 1);
+    [REGIONS.rightArm, REGIONS.leftArm].flatMap(sideFaces).forEach((box) => drawStripe(ctx, box, shade(palette.arms, -0.4), 0.85, 1));
   },
 };
 
