@@ -242,6 +242,17 @@ const PATTERNS = {
   ninja(ctx) {
     drawStripe(ctx, REGIONS.body.front, "#8a1f1f", 0.5, 1);
   },
+  // Used for any theme without a bespoke pattern above (including the generic
+  // "adventurer" fallback for unrecognized prompts) so results are never just
+  // flat shading: a collar line, a belt + buckle, and sleeve cuffs.
+  default(ctx, palette) {
+    drawStripe(ctx, REGIONS.body.front, shade(palette.body, -0.4), 0.08, 1);
+    drawStripe(ctx, REGIONS.body.front, shade(palette.legs, -0.4), 0.62, 1);
+    ctx.fillStyle = shade(palette.legs, -0.5);
+    ctx.fillRect(REGIONS.body.front[0] + 3, REGIONS.body.front[1] + 8, 2, 2);
+    drawStripe(ctx, REGIONS.rightArm.front, shade(palette.arms, -0.4), 0.85, 1);
+    drawStripe(ctx, REGIONS.leftArm.front, shade(palette.arms, -0.4), 0.85, 1);
+  },
 };
 
 function drawFace(ctx) {
@@ -262,8 +273,8 @@ function paintSkin(ctx, theme, palette) {
   paintPart(ctx, REGIONS.rightLeg, palette.legs);
   paintPart(ctx, REGIONS.leftLeg, palette.legs);
 
-  const pattern = PATTERNS[theme];
-  if (pattern) pattern(ctx, palette);
+  const pattern = PATTERNS[theme] || PATTERNS.default;
+  pattern(ctx, palette);
 
   drawFace(ctx);
 }
